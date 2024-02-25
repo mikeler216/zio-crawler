@@ -21,10 +21,19 @@ case class InMemoryUsersRepo(usersMap: Ref[mutable.Map[String, UIO[Semaphore]]])
 
   private def deleteUser(userId: String): ZIO[Any, Throwable, Unit] = {
     for {
+      _   <- ZIO.debug(s"deleting user $userId")
       map <- usersMap.get
       _   <- assertUserExists(userId)
       _   <- ZIO.succeed(map.remove(userId))
       _   <- usersMap.set(map)
+    } yield ()
+  }
+
+  private def deleteUserAndWait(userId: String): Task[Unit] = {
+    for {
+      _ <- ZIO.debug(s"deleting user $userId")
+      _ <- assertUserExists(userId)
+      _ <- deleteUser(userId)
     } yield ()
   }
 
@@ -52,11 +61,6 @@ case class InMemoryUsersRepo(usersMap: Ref[mutable.Map[String, UIO[Semaphore]]])
     for {
       exists <- userExists(userId)
       sem    <- if (!exists) register(userId) else getUserSemaphore(userId).debug("user exists")
-//      _ = ZIO.acquireRelease(sem)(_ => ZIO.succeed{
-//        sleep(5.seconds).debug(s"releasing user $userId")
-//        deleteUser(userId)
-//      }
-//      )
     } yield sem
   }
 }
