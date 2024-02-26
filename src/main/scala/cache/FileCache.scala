@@ -32,9 +32,9 @@ object FileCache extends Cache {
 
   def writeToFile(url: Uri, links: Set[String]): Task[Unit] = {
     val filePath = urlFilePath(url)
-    ZIO.acquireReleaseWith(ZIO.attempt(new PrintWriter(filePath)))(file => ZIO.attempt(file.write(links.mkString("\n"))).orElseSucceed())(
-      file => ZIO.attempt(file.close()) *> cleanUpCacheFile(url).forkDaemon *> ZIO.unit
-    )
+    ZIO.acquireReleaseWith(ZIO.attempt(new PrintWriter(filePath)))(file =>
+      (ZIO.attempt(file.close()) *> cleanUpCacheFile(url).forkDaemon *> ZIO.unit).orElseSucceed("failed to close file")
+    )(file => ZIO.attempt(file.write(links.mkString("\n"))).orElseSucceed())
   }
 
   private def cleanUpCacheFile(url: Uri): ZIO[Any, Nothing, Unit] = {
@@ -60,7 +60,7 @@ object FileCache extends Cache {
 
     } yield links
   }
-  def fileExist(url: Uri): Task[Boolean] = {
+  def fileExist(url: Uri): Task[Boolean]        = {
     val filePath = urlFilePath(url)
     ZIO.attempt {
       new java.io.File(filePath).exists()

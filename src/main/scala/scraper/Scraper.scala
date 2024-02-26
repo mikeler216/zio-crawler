@@ -2,11 +2,11 @@ package zio.crawler
 package scraper
 
 import zio.ZIO.serviceWithZIO
-import zio.crawler.cache.Cache
+import cache.Cache
 import zio.{Semaphore, UIO, ZIO}
 
 trait Scraper {
-  def scrapeUrls(url: String, depth: Int, semaphore: UIO[Semaphore]): ZIO[Cache, Throwable, Set[String]] = ???
+  def scrapeUrls(url: String, depth: Int, semaphore: UIO[Semaphore]): ZIO[Cache, Throwable, Set[String]]
 
 }
 
