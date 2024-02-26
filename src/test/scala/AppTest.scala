@@ -1,10 +1,10 @@
 import sttp.client3.UriContext
-import zio.crawler.cache.FileCache
-import zio.{Scope, Semaphore, ULayer, ZIO, ZLayer, durationInt}
+import zio.crawler.cache.{Cache, FileCache}
+import zio.{Scope, Semaphore, UIO, ULayer, ZIO, ZLayer, durationInt}
 import zio.crawler.health.HealthRoute
 import zio.crawler.scrape.ScrapeRoute
 import zio.crawler.scraper.{OnlineScraper, Scraper}
-import zio.crawler.users.{InMemoryUsersRepo, UsersRepo}
+import zio.crawler.users.{InMemoryUsersRepo, User, UsersRepo}
 import zio.test._
 import zio.test.Assertion.{anything, containsString, equalTo, isSubtype}
 import zio.http._
@@ -14,8 +14,8 @@ import java.io.PrintWriter
 object AppTest extends ZIOSpecDefault {
 
   object TestScraper extends Scraper {
-    def scrapeUrls(uri: String): ZIO[Any, Throwable, Set[String]] = ZIO.succeed(Set.empty)
     val layer: ULayer[TestScraper.type]                           = ZLayer.succeed(this)
+    override def scrapeUrls(url: String, depth: Int, semaphore: UIO[Semaphore]): ZIO[Cache, Throwable, Set[String]] = ZIO.succeed(Set.empty)
   }
   def spec: Spec[TestEnvironment with Scope, Any] = suite("http")(
     test("should be ok") {
@@ -66,12 +66,22 @@ object TestCache extends ZIOSpecDefault {
       val testUri = uri"http://example.org"
       assertZIO {
         for {
-            _      <- FileCache.writeToFile(testUri, Set("https://www.iana.org/domains/example"))
-            _ <- TestClock.adjust(1.minute)
-            exists <- FileCache.fileExist(testUri)
+          _      <- FileCache.writeToFile(testUri, Set("https://www.iana.org/domains/example"))
+          _      <- TestClock.adjust(1.minute)
+          exists <- FileCache.fileExist(testUri)
         } yield exists
       }(equalTo(false))
     },
+    test("should read file") {
+      val testUri = uri"http://example.org"
+      assertZIO {
+        for {
+          _     <- FileCache.writeToFile(testUri, Set("https://www.iana.org/domains/example"))
+          links <- FileCache.readFromFile(testUri)
+          _     <- FileCache.deleteFile(testUri)
+        } yield links
+      }(equalTo(Set("https://www.iana.org/domains/example")))
+    }
   )
 }
 
@@ -81,6 +91,15 @@ object TestUser extends ZIOSpecDefault {
     test("register user test") {
       assertZIO {
         for {
+          zSemaphore <- UsersRepo.getOrSetUserSemaphore("test")
+          semaphore  <- zSemaphore
+        } yield semaphore
+      }(isSubtype[Semaphore](anything))
+    },
+    test("user cleanup") {
+      assertZIO {
+        for {
+          _          <- UsersRepo.getOrSetUserSemaphore("test")
           zSemaphore <- UsersRepo.getOrSetUserSemaphore("test")
           semaphore  <- zSemaphore
         } yield semaphore
