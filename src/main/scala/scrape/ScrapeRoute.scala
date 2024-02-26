@@ -5,6 +5,7 @@ import users.UsersRepo
 import scraper.Scraper
 
 import zio.ZIO
+import zio.crawler.cache.Cache
 import zio.http.Status.BadRequest
 import zio.http._
 
@@ -17,18 +18,18 @@ object ScrapeRoute {
     } yield (url, userId)
   }
 
-  def apply(): Http[UsersRepo with Scraper, Throwable, Request, Response] = {
+  def apply(): Http[UsersRepo with Scraper with Cache, Throwable, Request, Response] = {
     Http.collectZIO[Request] {
 
       case req @ (Method.GET -> Root / "scrape") =>
         {
           (for {
-            _ <- ZIO.debug("1")
             _ <- parseQueryParams(req.url.queryParams) match {
                    case Some((url, userId)) =>
                      for {
                        semaphore <- UsersRepo.getOrSetUserSemaphore(userId)
                        _         <- Scraper.scrapeUrls(url, 3, semaphore)
+                       _ <- ZIO.debug("request done ")
                      } yield ()
                    case None                => ZIO.fail(HttpError.BadRequest(""))
                  }

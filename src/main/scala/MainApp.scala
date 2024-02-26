@@ -1,9 +1,10 @@
 package zio.crawler
 import health.HealthRoute
 
-import zio.crawler.scrape.ScrapeRoute
-import zio.crawler.scraper.OnlineScraper
-import zio.crawler.users.InMemoryUsersRepo
+import cache.FileCache
+import scrape.ScrapeRoute
+import scraper.OnlineScraper
+import users.InMemoryUsersRepo
 import zio.http.Server
 import zio.{Scope, ZIO, ZIOAppArgs, ZIOAppDefault}
 object MainApp extends ZIOAppDefault {
@@ -16,6 +17,7 @@ object MainApp extends ZIOAppDefault {
       .provide(
         InMemoryUsersRepo.layer ++
           OnlineScraper.layer ++
+          FileCache.layer ++
         Server.defaultWithPort(6666)
       )
   }

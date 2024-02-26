@@ -4,8 +4,8 @@ package scraper
 import sttp.client3.httpclient.zio.HttpClientZioBackend
 import sttp.client3._
 import sttp.model.Uri
-import cache.UrlCache.{getUrlsFromCache, putUrlsInCache}
 
+import cache.Cache
 import zio.{Semaphore, UIO, ZIO, ZLayer}
 
 import scala.util.Try
@@ -36,16 +36,16 @@ object OnlineScraper extends Scraper {
     case Left(_)    => ZIO.fail(new Exception(s"Could not parse $str to Uri"))
   }
 
-  override def scrapeUrls(url: String, depth: Int, semaphore: UIO[Semaphore]): ZIO[Any, Throwable, Set[String]] = {
+  override def scrapeUrls(url: String, depth: Int, semaphore: UIO[Semaphore]): ZIO[Cache, Throwable, Set[String]] = {
 
-    def loop(url: Uri, depth: Int, visited: Set[Uri]): ZIO[Any, Throwable, Set[String]] = {
+    def loop(url: Uri, depth: Int, visited: Set[Uri]): ZIO[Cache, Throwable, Set[String]] = {
       if (depth <= 0 || visited.contains(url)) ZIO.succeed(Set.empty)
       else
         for {
           _             <- ZIO.debug(s"Scraping $url")
-          links         <- getUrlsFromCache(url).orElse(getHTMLAndParseLinks(url).orElse(ZIO.succeed(Set.empty))).debug("links")
+          links         <- Cache.getUrlsFromCache(url).orElse(getHTMLAndParseLinks(url).orElse(ZIO.succeed(Set.empty)))
           newLinks       = links.filter(!_.contains(visited)).map { uri => Uri.parse(uri).getOrElse(uri"") }
-          _             <- putUrlsInCache(url, newLinks.map(_.toString))
+          _             <- Cache.putUrlsInCache(url, newLinks.map(_.toString))
           nvisited       = visited + url
           userSemaphore <- semaphore
           _             <- userSemaphore.withPermit {
