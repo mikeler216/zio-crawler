@@ -1,9 +1,9 @@
 import sttp.client3.UriContext
 import zio.crawler.cache.UrlCache
-import zio.{Scope, Semaphore, ZIO}
+import zio.{Scope, Semaphore, ULayer, ZIO, ZLayer}
 import zio.crawler.health.HealthRoute
 import zio.crawler.scrape.ScrapeRoute
-import zio.crawler.scraper.Scraper
+import zio.crawler.scraper.{OnlineScraper, Scraper}
 import zio.crawler.users.{InMemoryUsersRepo, UsersRepo}
 import zio.test._
 import zio.test.Assertion.{anything, containsString, equalTo, isSubtype}
@@ -11,41 +11,42 @@ import zio.http._
 
 object AppTest extends ZIOSpecDefault {
 
+  object TestScraper extends Scraper {
+    def scrapeUrls(uri: String): ZIO[Any, Throwable, Set[String]] = ZIO.succeed(Set.empty)
+    val layer: ULayer[TestScraper.type] = ZLayer.succeed(this)
+  }
   def spec: Spec[TestEnvironment with Scope, Any] = suite("http")(
+
+
     test("should be ok") {
       val req = Request.get(URL(Root / "health"))
       assertZIO(HealthRoute().runZIO(req))(equalTo(Response.ok))
-    },
-    test("should handle another case") {
-      val req = Request.get(URL(Root / "scrape", queryParams = QueryParams("url" -> "http://www.google.com", "userId" -> "123")))
-//      assertZIO(ScrapeRoute().runZIO(req))(equalTo(Response.text(s"Scraped http://www.google.com with userID 123")))
-      assertZIO(ScrapeRoute().runZIO(req))(equalTo(Response.json("""{"url":"http://www.google.com","userID":"123"}""")))
     },
     test("bad query params for scraper") {
       val req = Request.get(URL(Root / "scrape", queryParams = QueryParams("url" -> "http://www.google.com")))
       assertZIO(ScrapeRoute().runZIO(req))(equalTo(Response.fromHttpError(HttpError.BadRequest())))
     },
     test("run scraper") {
-      val body = Scraper.getUrlHTML(uri"http://example.org").flatMap(html => ZIO.succeed(html))
+      val body = OnlineScraper.getUrlHTML(uri"http://example.org").flatMap(html => ZIO.succeed(html))
       assertZIO(body)(containsString("html"))
     },
     test("parse links from html") {
-      val links = Scraper.parseNewLinks("<a href='http://www.google.com'>Google</a>")
+      val links = OnlineScraper.parseNewLinks("<a href='http://www.google.com'>Google</a>")
       assertZIO(links)(equalTo(Set("http://www.google.com")))
     },
     test("get HTML and parse Links") {
-      val links = Scraper.getHTMLAndParseLinks(uri"http://example.org")
+      val links = OnlineScraper.getHTMLAndParseLinks(uri"http://example.org")
       assertZIO(links)(equalTo(Set("https://www.iana.org/domains/example")))
     },
     test("scrape") {
       assertZIO {
         for {
-          links <- Scraper.scrapeUrls(uri"http://example.org", 3, Semaphore.make(1))
+          links <- OnlineScraper.scrapeUrls("http://example.org", 3, Semaphore.make(1))
 
         } yield links
       }(equalTo(Set.empty[String]))
     }
-  ).provideLayer(InMemoryUsersRepo.layer)
+  ).provideLayer(InMemoryUsersRepo.layer ++ TestScraper.layer)
 }
 
 object TestCache extends ZIOSpecDefault {

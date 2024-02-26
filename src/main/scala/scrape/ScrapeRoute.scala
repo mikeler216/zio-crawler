@@ -1,10 +1,11 @@
 package zio.crawler
 package scrape
 
-import scraper.Scraper.{scrapeUrls}
-import users.{UsersRepo}
+import users.UsersRepo
+import scraper.Scraper
 
-import zio.{Semaphore, ZIO}
+import zio.ZIO
+import zio.http.Status.BadRequest
 import zio.http._
 
 object ScrapeRoute {
@@ -16,26 +17,28 @@ object ScrapeRoute {
     } yield (url, userId)
   }
 
-  def apply(): Http[UsersRepo, Throwable, Request, Response] = {
-    Http.collect[Request] {
+  def apply(): Http[UsersRepo with Scraper, Throwable, Request, Response] = {
+    Http.collectZIO[Request] {
+
       case req @ (Method.GET -> Root / "scrape") =>
         {
           (for {
+            _ <- ZIO.debug("1")
             _ <- parseQueryParams(req.url.queryParams) match {
                    case Some((url, userId)) =>
                      for {
                        semaphore <- UsersRepo.getOrSetUserSemaphore(userId)
-                       _         <- scrapeUrls(url, 3, semaphore)
+                       _         <- Scraper.scrapeUrls(url, 3, semaphore)
                      } yield ()
                    case None                => ZIO.fail(HttpError.BadRequest(""))
                  }
 
-          } yield ()).catchAll {
-            case HttpError.BadRequest(_) => ZIO.succeed(Response.fromHttpError(HttpError.BadRequest("Invalid query parameters")))
-            case _                       => ZIO.succeed(Response.fromHttpError(HttpError.InternalServerError("Failed to scrape")))
+          } yield (Response.text("ok"))).catchAll {
+            case HttpError.BadRequest("") => ZIO.succeed(Response.fromHttpError(HttpError.BadRequest("")))
+            case e                        => ZIO.succeed(Response.fromHttpError(HttpError.InternalServerError(e.getMessage)))
           }
         }
-        Response.text("Scraping...")
+
     }
   }
 

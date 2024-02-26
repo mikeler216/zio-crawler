@@ -2,6 +2,7 @@ package zio.crawler
 import health.HealthRoute
 
 import zio.crawler.scrape.ScrapeRoute
+import zio.crawler.scraper.OnlineScraper
 import zio.crawler.users.InMemoryUsersRepo
 import zio.http.Server
 import zio.{Scope, ZIO, ZIOAppArgs, ZIOAppDefault}
@@ -13,7 +14,8 @@ object MainApp extends ZIOAppDefault {
         httpApp.withDefaultErrorResponse
       )
       .provide(
-        InMemoryUsersRepo.layer,
+        InMemoryUsersRepo.layer ++
+          OnlineScraper.layer ++
         Server.defaultWithPort(6666)
       )
   }
