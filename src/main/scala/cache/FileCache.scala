@@ -2,21 +2,23 @@ package zio.crawler
 package cache
 
 import sttp.model.Uri
-import zio.crawler.cache.UrlCache.fileExist
-import zio.{RIO, Task, ZIO}
+import zio.ZIO.sleep
+import zio.{durationInt, Task, ZIO}
 
 import java.io.{FileNotFoundException, PrintWriter}
 import java.security.MessageDigest
 
-object UrlCache {
+object FileCache extends Cache {
   private val cacheDir = "/tmp"
 
-  def getUrlsFromCache(url: Uri): ZIO[Any, String, Set[String]] = {
+  val layer = zio.ZLayer.succeed(FileCache)
+
+  override def getUrlsFromCache(url: Uri): ZIO[Any, String, Set[String]] = {
     readFromFile(url).orElseFail("cache file not found")
   }
 
-  def putUrlsInCache(url: Uri, links: Set[String]): RIO[Any, Unit] = {
-    writeToFile(url, links)
+  override def putUrlsInCache(url: Uri, links: Set[String]): Task[Unit] = {
+    writeToFile(url, links) *> ZIO.debug(s"writing to file ${urlFilePath(url)} finished")
   }
 
   private def fileName(url: Uri): String = {
@@ -30,22 +32,21 @@ object UrlCache {
 
   def writeToFile(url: Uri, links: Set[String]): Task[Unit] = {
     val filePath = urlFilePath(url)
-    ZIO.attempt {
-      val file = new PrintWriter(filePath)
-      file.write(links.mkString("\n"))
-      file.close()
-    }
+    ZIO.acquireReleaseWith(ZIO.attempt(new PrintWriter(filePath)))(file => ZIO.attempt(file.write(links.mkString("\n"))).orElseSucceed())(
+      file => ZIO.attempt(file.close()) *> cleanUpCacheFile(url).forkDaemon *> ZIO.unit
+    )
+  }
+
+  private def cleanUpCacheFile(url: Uri): ZIO[Any, Nothing, Unit] = {
+    for {
+      _ <- sleep(30.second).debug("sleeping for 30 second")
+      _ <- deleteFile(url).orElseSucceed("failed to delete file")
+      _ <- ZIO.debug(s"file deleted ${urlFilePath(url)}")
+    } yield ()
   }
 
   def deleteFile(url: Uri): Task[Unit] = {
-    val filePath = urlFilePath(url)
-    ZIO.attempt {
-      for {
-        fileExist <- fileExist(url)
-        _         <- if (fileExist) ZIO.attempt(new java.io.File(filePath).delete())
-                     else ZIO.unit
-      } yield ()
-    }
+    ZIO.attempt(new java.io.File(urlFilePath(url)).delete()).debug("deleting file") *> ZIO.unit
   }
 
   def readFromFile(url: Uri): Task[Set[String]] = {
@@ -55,16 +56,15 @@ object UrlCache {
       _         <- if (!fileExist) ZIO.fail(new FileNotFoundException("File does not exist")) else ZIO.unit
       file      <- ZIO.attempt(scala.io.Source.fromFile(filePath))
       links     <- ZIO.attempt(file.getLines().toSet)
-      _         <- ZIO.attempt(file.close())
-    } yield links
+      _         <- ZIO.attempt()
 
+    } yield links
   }
   def fileExist(url: Uri): Task[Boolean] = {
     val filePath = urlFilePath(url)
     ZIO.attempt {
       new java.io.File(filePath).exists()
     }
-
   }
 
 }

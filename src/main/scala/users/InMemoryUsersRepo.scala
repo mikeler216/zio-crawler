@@ -1,7 +1,6 @@
 package zio.crawler
 package users
 
-import zio.ZIO.sleep
 import zio._
 
 import scala.collection.mutable
